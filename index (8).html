@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Finance Tracker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="manifest" href="manifest.json"> <!-- For PWA Support -->
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }
+        body { background-color: #f0f2f5; padding: 20px; }
+        .container { max-width: 800px; margin: auto; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1 { color: #1a73e8; text-align: center; margin-bottom: 20px; }
+        .balance { font-size: 24px; text-align: center; color: #333; }
+        .positive { color: #34a853; }
+        .negative { color: #ea4335; }
+        form { display: grid; gap: 10px; }
+        input, select, button { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background: #1a73e8; color: white; cursor: pointer; border: none; }
+        button:hover { background: #1557b0; }
+        .transaction-list { list-style: none; padding: 0; }
+        .transaction-item { padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .delete-btn { background: #ea4335; color: white; padding: 5px 10px; border: none; border-radius: 4px; }
+        .export-btn { background: #ff9800; margin-top: 10px; }
+        @media (max-width: 600px) {
+            body { padding: 10px; }
+            .card { padding: 15px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Finance Tracker</h1>
+
+        <div class="card">
+            <h2>Balance: <span id="currentBalance">$0.00</span></h2>
+            <h3>Income: <span class="positive" id="totalIncome">$0.00</span></h3>
+            <h3>Expenses: <span class="negative" id="totalExpenses">$0.00</span></h3>
+        </div>
+
+        <div class="card">
+            <h2>Add Transaction</h2>
+            <form id="transactionForm">
+                <label>Amount ($)</label>
+                <input type="number" id="amount" required min="0" step="0.01">
+
+                <label>Category</label>
+                <input type="text" id="category" required list="categoryList">
+                <datalist id="categoryList"></datalist>
+
+                <label>Type</label>
+                <select id="type" required>
+                    <option value="income">Income</option>
+                    <option value="expense">Expense</option>
+                </select>
+
+                <label>Date</label>
+                <input type="date" id="date" required>
+
+                <button type="submit">Add Transaction</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>Recent Transactions</h2>
+            <ul class="transaction-list" id="transactionList"></ul>
+        </div>
+
+        <button class="export-btn" onclick="exportToPDF()">Export to PDF</button>
+    </div>
+
+    <script>
+        let transactions = JSON.parse(localStorage.getItem('transactions') || '[]');
+        const form = document.getElementById('transactionForm');
+        const transactionList = document.getElementById('transactionList');
+        const categoryList = document.getElementById('categoryList');
+        const dateInput = document.getElementById('date');
+
+        // Set default date to today
+        dateInput.valueAsDate = new Date();
+
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+        }
+
+        function updateSummary() {
+            let income = 0, expenses = 0;
+            transactions.forEach(t => t.type === 'income' ? income += t.amount : expenses += t.amount);
+            document.getElementById('currentBalance').textContent = formatCurrency(income - expenses);
+            document.getElementById('totalIncome').textContent = formatCurrency(income);
+            document.getElementById('totalExpenses').textContent = formatCurrency(expenses);
+            categoryList.innerHTML = [...new Set(transactions.map(t => t.category))]
+                .map(category => `<option value="${category}">`).join('');
+        }
+
+        function displayTransactions() {
+            transactionList.innerHTML = transactions.map((t, i) => `
+                <li class="transaction-item">
+                    <div><strong>${t.category}</strong><br>${t.date}</div>
+                    <div>
+                        <span class="${t.type === 'income' ? 'positive' : 'negative'}">${formatCurrency(t.amount)}</span>
+                        <button class="delete-btn" onclick="deleteTransaction(${i})">Delete</button>
+                    </div>
+                </li>
+            `).join('');
+        }
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            transactions.push({
+                amount: parseFloat(document.getElementById('amount').value),
+                category: document.getElementById('category').value,
+                type: document.getElementById('type').value,
+                date: document.getElementById('date').value
+            });
+            localStorage.setItem('transactions', JSON.stringify(transactions));
+            updateSummary();
+            displayTransactions();
+            form.reset();
+            dateInput.valueAsDate = new Date();
+        });
+
+        function deleteTransaction(index) {
+            if (confirm('Delete this transaction?')) {
+                transactions.splice(index, 1);
+                localStorage.setItem('transactions', JSON.stringify(transactions));
+                updateSummary();
+                displayTransactions();
+            }
+        }
+
+        function exportToPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(18);
+            doc.text("Finance Tracker - Transactions", 20, 20);
+
+            let startY = 40;
+            transactions.forEach((t, i) => {
+                let y = startY + i * 10;
+                doc.text(`${t.date}  |  ${t.category}  |  ${t.type}  |  $${t.amount.toFixed(2)}`, 20, y);
+            });
+
+            const isAndroid = /Android/i.test(navigator.userAgent);
+            if (isAndroid) {
+                doc.save("Finance_Tracker_Transactions.pdf");
+            } else {
+                const pdfBlob = doc.output("blob");
+                const pdfUrl = URL.createObjectURL(pdfBlob);
+                window.open(pdfUrl, "_blank");
+            }
+        }
+
+        updateSummary();
+        displayTransactions();
+    </script>
+</body>
+</html>
